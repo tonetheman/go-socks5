@@ -1,11 +1,13 @@
 package socks5
 
 import (
+	"encoding/hex"
 	"fmt"
 	"io"
 	"net"
 	"strconv"
 	"strings"
+	"time"
 
 	"golang.org/x/net/context"
 )
@@ -353,10 +355,41 @@ type closeWriter interface {
 	CloseWrite() error
 }
 
+// TC: added this for logging
+func copyBuffer(dst io.Writer, src io.Reader) (written int64, err error) {
+	buf := make([]byte, 32*1024)
+	for {
+		nr, er := src.Read(buf)
+		if nr > 0 {
+			fmt.Printf("%s: src read: %v\n", time.Now().Format("2006-01-02 15:04:05"), hex.Dump(buf[:nr]))
+			nw, ew := dst.Write(buf[0:nr])
+			if nw > 0 {
+				written += int64(nw)
+			}
+			if ew != nil {
+				err = ew
+				break
+			}
+			if nr != nw {
+				err = io.ErrShortWrite
+				break
+			}
+		}
+		if er != nil {
+			if er != io.EOF {
+				err = err
+			}
+			break
+		}
+	}
+	return written, err
+}
+
 // proxy is used to suffle data from src to destination, and sends errors
 // down a dedicated channel
 func proxy(dst io.Writer, src io.Reader, errCh chan error) {
-	_, err := io.Copy(dst, src)
+	_, err := copyBuffer(dst, src)
+	//_, err := io.Copy(dst, src)
 	if tcpConn, ok := dst.(closeWriter); ok {
 		tcpConn.CloseWrite()
 	}
